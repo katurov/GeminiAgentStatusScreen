@@ -26,6 +26,7 @@ void drawInterface() {
     // Строка 1: Буква + Папка (Белый)
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     char buf[21];
+    // Ограничиваем папку до 16 символов, чтобы влезло в 20 знаков
     snprintf(buf, 21, "%c:[%s]", widgets[i].letter, widgets[i].folder.substring(0, 16).c_str());
     tft.drawString(buf, 0, y_start);
     
@@ -40,34 +41,38 @@ void drawInterface() {
 }
 
 void updateAgent(char letter, uint16_t color, String status, String folder) {
-  int foundIdx = -1;
+  int targetIdx = -1;
+
+  // 1. Ищем, нет ли уже такого агента
   for (int i = 0; i < MAX_WIDGETS; i++) {
     if (widgets[i].active && widgets[i].letter == letter) {
-      foundIdx = i;
+      targetIdx = i;
       break;
     }
   }
 
-  AgentWidget updated;
-  updated.letter = letter;
-  updated.color = color;
-  updated.status = status;
-  updated.folder = folder;
-  updated.active = true;
-
-  if (foundIdx != -1) {
-    // Двигаем все вниз до найденного
-    for (int j = foundIdx; j > 0; j--) {
-      widgets[j] = widgets[j-1];
-    }
-  } else {
-    // Новый: двигаем все вниз, вытесняя последнего
-    for (int j = MAX_WIDGETS - 1; j > 0; j--) {
-      widgets[j] = widgets[j-1];
+  // 2. Если не нашли, ищем первый свободный слот
+  if (targetIdx == -1) {
+    for (int i = 0; i < MAX_WIDGETS; i++) {
+      if (!widgets[i].active) {
+        targetIdx = i;
+        break;
+      }
     }
   }
-  
-  widgets[0] = updated;
+
+  // 3. Если все слоты заняты, перезаписываем последнего (или игнорируем)
+  if (targetIdx == -1) {
+      targetIdx = MAX_WIDGETS - 1;
+  }
+
+  // Обновляем данные в выбранном слоте
+  widgets[targetIdx].letter = letter;
+  widgets[targetIdx].color = color;
+  widgets[targetIdx].status = status;
+  widgets[targetIdx].folder = folder;
+  widgets[targetIdx].active = true;
+
   drawInterface();
 }
 
@@ -78,7 +83,7 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
   pinMode(4, OUTPUT);
   digitalWrite(4, HIGH);
-  Serial.println("ESP32 Status Monitor Started");
+  Serial.println("ESP32 Static Widget Monitor Started");
 }
 
 void loop() {
@@ -87,8 +92,6 @@ void loop() {
     input.trim();
     
     if (input.length() > 5) {
-      // Формат: Letter:ColorCode:Status:Folder
-      // Пример: A:G:AfterModel:Folder
       int c1 = input.indexOf(':');
       int c2 = input.indexOf(':', c1 + 1);
       int c3 = input.indexOf(':', c2 + 1);
