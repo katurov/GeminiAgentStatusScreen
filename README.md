@@ -2,6 +2,8 @@
 
 A visual monitoring system for Gemini CLI agents on an external **LilyGo TTGO T-Display** screen.
 
+![an example](assets/IMG_4840.jpeg)
+
 ## Why do you need this?
 When running complex tasks, Gemini CLI may spawn sub-agents or perform long-running operations. This system allows you to:
 * See the real-time status without checking logs.
