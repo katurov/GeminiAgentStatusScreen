@@ -23,55 +23,49 @@ void drawInterface() {
 
     int y_start = i * (16 * 2 + 1); 
     
-    // Строка 1: Буква + Папка (Белый)
+    // Row 1: Letter:[Folder]
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    char buf[21];
-    // Ограничиваем папку до 16 символов, чтобы влезло в 20 знаков
-    snprintf(buf, 21, "%c:[%s]", widgets[i].letter, widgets[i].folder.substring(0, 16).c_str());
+    char buf[25];
+    String f = widgets[i].folder;
+    if (f.length() > 15) f = f.substring(0, 14) + "..";
+    snprintf(buf, 25, "%c:[%s]", widgets[i].letter, f.c_str());
     tft.drawString(buf, 0, y_start);
     
-    // Строка 2: Статус (Цветной)
+    // Row 2: Status
     tft.setTextColor(widgets[i].color, TFT_BLACK);
-    String st = widgets[i].status.substring(0, 20);
+    String st = widgets[i].status;
+    if (st.length() > 20) st = st.substring(0, 20);
     tft.drawString(st, 0, y_start + 16);
     
-    // Разделительная линия
     tft.drawFastHLine(0, y_start + 32, 240, 0x1082); 
   }
 }
 
-void updateAgent(char letter, uint16_t color, String status, String folder) {
-  int targetIdx = -1;
-
-  // 1. Ищем, нет ли уже такого агента
+void updateAgent(char letter, uint16_t color, String folder, String status) {
+  int idx = -1;
   for (int i = 0; i < MAX_WIDGETS; i++) {
     if (widgets[i].active && widgets[i].letter == letter) {
-      targetIdx = i;
+      idx = i;
       break;
     }
   }
 
-  // 2. Если не нашли, ищем первый свободный слот
-  if (targetIdx == -1) {
+  if (idx == -1) {
     for (int i = 0; i < MAX_WIDGETS; i++) {
       if (!widgets[i].active) {
-        targetIdx = i;
+        idx = i;
         break;
       }
     }
   }
 
-  // 3. Если все слоты заняты, перезаписываем последнего (или игнорируем)
-  if (targetIdx == -1) {
-      targetIdx = MAX_WIDGETS - 1;
-  }
+  if (idx == -1) idx = MAX_WIDGETS - 1;
 
-  // Обновляем данные в выбранном слоте
-  widgets[targetIdx].letter = letter;
-  widgets[targetIdx].color = color;
-  widgets[targetIdx].status = status;
-  widgets[targetIdx].folder = folder;
-  widgets[targetIdx].active = true;
+  widgets[idx].letter = letter;
+  widgets[idx].color = color;
+  widgets[idx].folder = folder;
+  widgets[idx].status = status;
+  widgets[idx].active = true;
 
   drawInterface();
 }
@@ -83,7 +77,7 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
   pinMode(4, OUTPUT);
   digitalWrite(4, HIGH);
-  Serial.println("ESP32 Static Widget Monitor Started");
+  Serial.println("ESP32 Robust Monitor Started");
 }
 
 void loop() {
@@ -91,16 +85,21 @@ void loop() {
     String input = Serial.readStringUntil('\n');
     input.trim();
     
-    if (input.length() > 5) {
-      int c1 = input.indexOf(':');
-      int c2 = input.indexOf(':', c1 + 1);
-      int c3 = input.indexOf(':', c2 + 1);
+    int start = input.indexOf('@');
+    int end = input.indexOf('#');
+    
+    if (start != -1 && end != -1 && end > start) {
+      String payload = input.substring(start + 1, end);
+      // Expected: L:C:Folder:Status
+      int c1 = payload.indexOf(':');
+      int c2 = payload.indexOf(':', c1 + 1);
+      int c3 = payload.indexOf(':', c2 + 1);
       
-      if (c1 == 1 && c2 != -1 && c3 != -1) {
-        char letter = input[0];
-        char colorCode = input[c1 + 1];
-        String status = input.substring(c2 + 1, c3);
-        String folder = input.substring(c3 + 1);
+      if (c1 != -1 && c2 != -1 && c3 != -1) {
+        char letter = payload[0];
+        char colorCode = payload[c1 + 1];
+        String folder = payload.substring(c2 + 1, c3);
+        String status = payload.substring(c3 + 1);
         
         uint16_t color = TFT_WHITE;
         if (colorCode == 'Y') color = TFT_YELLOW;
@@ -108,7 +107,7 @@ void loop() {
         else if (colorCode == 'R') color = TFT_RED;
         else if (colorCode == 'B') color = TFT_BLUE;
 
-        updateAgent(letter, color, status, folder);
+        updateAgent(letter, color, folder, status);
       }
     }
   }
