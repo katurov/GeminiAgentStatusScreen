@@ -6,12 +6,35 @@ import sys
 import string
 import os
 import psutil
+import atexit
 
 R_HOST = '127.0.0.1'
 R_PORT = 6379
 R_QUEUE = 'gemini_events'
 SERIAL_PORT = "/dev/cu.usbserial-01EEA79E"
 BAUD_RATE = 115200
+PID_FILE = "bridge.pid"
+
+def check_pid():
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE, "r") as f:
+                old_pid = int(f.read().strip())
+            if psutil.pid_exists(old_pid):
+                print(f"\n[!] ERROR: Another instance of bridge.py is already running (PID: {old_pid}).")
+                print(f"[!] Please stop it first using: pkill -f bridge.py\n")
+                sys.exit(1)
+        except (ValueError, OSError):
+            pass
+    
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+def remove_pid():
+    if os.path.exists(PID_FILE):
+        os.remove(PID_FILE)
+
+atexit.register(remove_pid)
 
 ppid_to_letter = {} 
 alphabet = [c for c in string.ascii_uppercase if c != 'G']
@@ -39,10 +62,10 @@ def process_event(ser, data):
     status_text = event_name
     should_clear_ppid = False
 
-    if event_name == "BeforeAll":
+    if event_name in ["BeforeAll", "SessionStart"]:
         color_code = "B"
         status_text = "Ready"
-    elif event_name == "AfterAll":
+    elif event_name in ["AfterAll", "SessionEnd"]:
         color_code = "K"
         status_text = "OFF"
         should_clear_ppid = True
@@ -68,29 +91,36 @@ def process_event(ser, data):
     return True
 
 def main():
-    print("Bridge (Lifecycle Mode) starting...", flush=True)
+    check_pid()
+    print("Bridge (Session Lifecycle Mode) starting...", flush=True)
     r = redis.Redis(host=R_HOST, port=R_PORT, decode_responses=True)
     ser = None
     
-    while True:
-        if ser is None:
+    try:
+        while True:
+            if ser is None:
+                try:
+                    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+                    time.sleep(2)
+                except:
+                    time.sleep(5)
+                    continue
             try:
-                ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-                time.sleep(2)
-            except:
-                time.sleep(5)
-                continue
-        try:
-            result = r.brpop(R_QUEUE, timeout=5)
-            if result:
-                _, item = result
-                data = json.loads(item)
-                if not process_event(ser, data):
-                    ser.close()
-                    ser = None
-        except Exception as e:
-            print(f"Loop error: {e}", flush=True)
-            time.sleep(1)
+                result = r.brpop(R_QUEUE, timeout=5)
+                if result:
+                    _, item = result
+                    data = json.loads(item)
+                    if not process_event(ser, data):
+                        ser.close()
+                        ser = None
+            except Exception as e:
+                print(f"Loop error: {e}", flush=True)
+                time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nBridge stopped by user.", flush=True)
+    finally:
+        if ser:
+            ser.close()
 
 if __name__ == "__main__":
     main()
