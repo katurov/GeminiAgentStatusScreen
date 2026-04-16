@@ -1,35 +1,109 @@
 # 📟 Gemini Agent Monitor (ESP32)
 
-Система визуального мониторинга работы агентов Gemini CLI на внешнем экране **LilyGo TTGO T-Display**. 
+A visual monitoring system for Gemini CLI agents on an external **LilyGo TTGO T-Display** screen.
 
-## Зачем это нужно?
-Когда вы запускаете сложные задачи, Gemini CLI может порождать под-агентов или выполнять долгие операции. Эта система позволяет:
-* Видеть статус работы в реальном времени, не заглядывая в логи.
-* Отслеживать сразу несколько агентов одновременно (у каждого свой виджет).
-* Понимать, в какой именно папке (проекте) сейчас происходит действие.
-* Мгновенно узнавать о запросах на выполнение инструментов (красный статус).
+## Why do you need this?
+When running complex tasks, Gemini CLI may spawn sub-agents or perform long-running operations. This system allows you to:
+* See the real-time status without checking logs.
+* Track multiple agents simultaneously (each with its own widget).
+* Identify which folder (project) the action is currently taking place in.
+* Instantly recognize tool execution requests (red status for permission).
 
-## Как это устроено?
-Система использует **Redis** как посредник. Это гарантирует, что Gemini не будет тормозить при отправке данных на медленный Serial-порт. Специальный "мост" (`bridge.py`) следит за активностью процессов и обновляет виджеты на экране.
+## How it works
+The system uses **Redis** as a broker. This ensures that Gemini is not blocked when sending data to a potentially slow Serial port. A dedicated "bridge" (`bridge.py`) monitors process activity and updates the widgets on the screen.
 
-## Логика отображения (LRU Stack)
-На экране ESP32 отображается до **4-х последних активных источников**:
-* Если приходит обновление от уже существующего источника, его виджет перемещается в **самый верхний слот**.
-* При появлении нового источника он добавляется в топ, сдвигая остальные вниз. Если все слоты заняты, самый старый (нижний) удаляется.
-* Каждый виджет состоит из двух строк:
-  * **Строка 1:** `[Источник] Папка` (белый цвет).
-  * **Строка 2:** `Текущий статус` (цветной статус).
+## Display Logic (LRU Stack)
+The ESP32 screen displays up to **4 most recent active sources**:
+* If an update comes from an existing source, its widget moves to the **top slot**.
+* When a new source appears, it is added to the top, shifting others down. If all slots are full, the oldest (bottom) one is removed.
+* Each widget consists of two lines:
+  * **Line 1:** `[Source] Folder` (White color).
+  * **Line 2:** `Current Status` (Color-coded status).
 
-## Быстрый старт
-1. **Железо:** Подключите ESP32 к USB. Прошивка находится в `src/main.cpp`. Соберите и загрузите её через PlatformIO.
-2. **Docker:** Запустите Redis: `docker run -d --name gemini-redis -p 6379:6379 redis:alpine`.
-3. **Мост:** Запустите фоновый процесс: `python3 scripts/bridge.py`.
-   * *Примечание:* Реализована защита через `bridge.pid`. Если запущен другой экземпляр, скрипт выдаст ошибку.
-4. **Настройка:** Путь к `scripts/hook.py` должен быть прописан в вашем `~/.gemini/settings.json`.
+## Quick Start
+1. **Hardware:** Connect your ESP32 via USB. The firmware is located in `src/main.cpp`. Build and upload it using PlatformIO.
+2. **Docker:** Start Redis: `docker run -d --name gemini-redis -p 6379:6379 redis:alpine`.
+3. **Bridge:** Start the background process: `python3 scripts/bridge.py`.
+   * *Note:* PID protection is implemented via `bridge.pid`. If another instance is running, the script will show an error.
+4. **Configuration:** Add the hooks to your Gemini settings (see below).
 
-## Цветовая индикация
-* 🟦 **Blue (Ready):** Агент запущен и ждет.
-* 🟨 **Yellow (Working):** Агент думает или вызывает инструмент.
-* 🟩 **Green (Success):** Ответ получен.
-* 🟥 **Red (Wait):** Требуется подтверждение выполнения инструмента (Permission).
-* ⬛ **OFF:** Виджет удаляется с экрана при завершении сессии.
+## Hooks Installation
+To enable monitoring, you need to register the `hook.py` script in your Gemini CLI configuration. Open `~/.gemini/settings.json` and add the following configuration:
+
+```json
+{
+  "hooksConfig": {
+    "enabled": true,
+    "notifications": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+          }
+        ]
+      }
+    ],
+    "BeforeModel": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+          }
+        ]
+      }
+    ],
+    "AfterModel": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+          }
+        ]
+      }
+    ],
+    "BeforeToolSelection": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Color Indication
+* 🟦 **Blue (Ready):** Agent is started and waiting.
+* 🟨 **Yellow (Working):** Agent is thinking or calling a tool.
+* 🟩 **Green (Success):** Response received.
+* 🟥 **Red (Wait):** Tool execution permission is required.
+* ⬛ **OFF:** Widget is removed from the screen when the session ends.
