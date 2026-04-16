@@ -42,7 +42,7 @@ To enable monitoring, you need to register the `hook.py` script in your Gemini C
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+            "command": "python3 /Users/username/AgentStatuser/scripts/hook.py"
           }
         ]
       }
@@ -52,7 +52,7 @@ To enable monitoring, you need to register the `hook.py` script in your Gemini C
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+            "command": "python3 /Users/username/AgentStatuser/scripts/hook.py"
           }
         ]
       }
@@ -62,7 +62,7 @@ To enable monitoring, you need to register the `hook.py` script in your Gemini C
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+            "command": "python3 /Users/username/AgentStatuser/scripts/hook.py"
           }
         ]
       }
@@ -72,7 +72,7 @@ To enable monitoring, you need to register the `hook.py` script in your Gemini C
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+            "command": "python3 /Users/username/AgentStatuser/scripts/hook.py"
           }
         ]
       }
@@ -82,7 +82,7 @@ To enable monitoring, you need to register the `hook.py` script in your Gemini C
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+            "command": "python3 /Users/username/AgentStatuser/scripts/hook.py"
           }
         ]
       }
@@ -92,7 +92,7 @@ To enable monitoring, you need to register the `hook.py` script in your Gemini C
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /Users/username/Downloads/AgentStatuser/scripts/hook.py"
+            "command": "python3 /Users/username/AgentStatuser/scripts/hook.py"
           }
         ]
       }
