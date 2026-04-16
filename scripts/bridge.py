@@ -4,6 +4,8 @@ import json
 import time
 import sys
 import string
+import os
+import psutil
 
 # Redis setup
 R_HOST = '127.0.0.1'
@@ -16,16 +18,27 @@ BAUD_RATE = 115200
 
 # State for deduplication and PPID mapping
 last_sent_msg = None
-ppid_to_letter = {}
-alphabet = string.ascii_uppercase # A, B, C...
+ppid_info = {} # ppid -> (letter, folder_name)
+alphabet = string.ascii_uppercase
 
-def get_letter_for_ppid(ppid):
-    if ppid is None: return "?"
-    if ppid not in ppid_to_letter:
+def get_info_for_ppid(ppid):
+    if ppid is None: return "?", "?"
+    if ppid not in ppid_info:
         # Assign next letter
-        idx = len(ppid_to_letter) % len(alphabet)
-        ppid_to_letter[ppid] = alphabet[idx]
-    return ppid_to_letter[ppid]
+        idx = len(ppid_info) % len(alphabet)
+        letter = alphabet[idx]
+        
+        # Get CWD of the process
+        try:
+            p = psutil.Process(ppid)
+            cwd = p.cwd()
+            folder = os.path.basename(cwd)
+        except:
+            folder = "unknown"
+            
+        ppid_info[ppid] = (letter, folder)
+        
+    return ppid_info[ppid]
 
 def get_serial():
     try:
@@ -40,10 +53,13 @@ def process_event(ser, data):
     global last_sent_msg
     event_name = data.get("hook_event_name")
     ppid = data.get("_ppid")
-    agent_id = get_letter_for_ppid(ppid)
+    
+    letter, folder = get_info_for_ppid(ppid)
     
     msg_prefix = ""
-    text = f"{agent_id}:{event_name}"
+    # Format: A:[Folder]:BeforeModel
+    # Note: Using 240px screen, so keep it short
+    text = f"{letter}:[{folder}]:{event_name}"
     
     if event_name in ["BeforeModel", "BeforeTool"]:
         msg_prefix = "Y:"
@@ -51,7 +67,7 @@ def process_event(ser, data):
         msg_prefix = "G:"
     elif event_name == "Notification" and data.get("notification_type") == "ToolPermission":
         msg_prefix = "R:"
-        text = f"{agent_id}:ToolPermission"
+        text = f"{letter}:[{folder}]:ToolPermission"
 
     if msg_prefix:
         full_msg = f"{msg_prefix}{text}"
@@ -74,7 +90,7 @@ def main():
     try:
         r = redis.Redis(host=R_HOST, port=R_PORT, decode_responses=True)
         ser = None
-        print("Bridge started (with PPID mapping). Waiting for events...", flush=True)
+        print("Bridge started (with PPID/CWD mapping). Waiting for events...", flush=True)
         
         while True:
             if ser is None:
