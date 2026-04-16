@@ -16,28 +16,22 @@ R_QUEUE = 'gemini_events'
 SERIAL_PORT = "/dev/cu.usbserial-01EEA79E"
 BAUD_RATE = 115200
 
-# State for deduplication and PPID mapping
-last_sent_msg = None
+# State for PPID mapping
 ppid_info = {} # ppid -> (letter, folder_name)
 alphabet = string.ascii_uppercase
 
 def get_info_for_ppid(ppid):
-    if ppid is None: return "?", "?"
+    if ppid is None: return "A", "unknown"
     if ppid not in ppid_info:
-        # Assign next letter
         idx = len(ppid_info) % len(alphabet)
         letter = alphabet[idx]
-        
-        # Get CWD of the process
         try:
             p = psutil.Process(ppid)
             cwd = p.cwd()
             folder = os.path.basename(cwd)
         except:
             folder = "unknown"
-            
         ppid_info[ppid] = (letter, folder)
-        
     return ppid_info[ppid]
 
 def get_serial():
@@ -50,36 +44,28 @@ def get_serial():
         return None
 
 def process_event(ser, data):
-    global last_sent_msg
     event_name = data.get("hook_event_name")
     ppid = data.get("_ppid")
     
     letter, folder = get_info_for_ppid(ppid)
     
-    msg_prefix = ""
-    # Format: A:[Folder]:BeforeModel
-    # Note: Using 240px screen, so keep it short
-    text = f"{letter}:[{folder}]:{event_name}"
+    color_code = ""
+    status_text = event_name
     
     if event_name in ["BeforeModel", "BeforeTool"]:
-        msg_prefix = "Y:"
+        color_code = "Y"
     elif event_name == "AfterModel":
-        msg_prefix = "G:"
+        color_code = "G"
     elif event_name == "Notification" and data.get("notification_type") == "ToolPermission":
-        msg_prefix = "R:"
-        text = f"{letter}:[{folder}]:ToolPermission"
+        color_code = "R"
+        status_text = "ToolPermission"
 
-    if msg_prefix:
-        full_msg = f"{msg_prefix}{text}"
-        
-        # Deduplication check
-        if full_msg == last_sent_msg:
-            return True
-            
+    if color_code:
+        # Новый формат: Letter:ColorCode:Status:Folder
+        full_msg = f"{letter}:{color_code}:{status_text}:{folder}"
         try:
             ser.write((full_msg + "\n").encode('utf-8'))
             ser.flush()
-            last_sent_msg = full_msg
             print(f"Sent: {full_msg}", flush=True)
         except Exception as e:
             print(f"Error writing to serial: {e}", flush=True)
@@ -90,7 +76,7 @@ def main():
     try:
         r = redis.Redis(host=R_HOST, port=R_PORT, decode_responses=True)
         ser = None
-        print("Bridge started (with PPID/CWD mapping). Waiting for events...", flush=True)
+        print("Bridge started (Widget Mode). Waiting for events...", flush=True)
         
         while True:
             if ser is None:
