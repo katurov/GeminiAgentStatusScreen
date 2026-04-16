@@ -7,32 +7,27 @@ import string
 import os
 import psutil
 
-# Redis setup
 R_HOST = '127.0.0.1'
 R_PORT = 6379
 R_QUEUE = 'gemini_events'
-
-# Serial setup
 SERIAL_PORT = "/dev/cu.usbserial-01EEA79E"
 BAUD_RATE = 115200
 
-# State
-ppid_info = {} 
-# Explicitly skip G to avoid any confusion
+ppid_to_letter = {} 
 alphabet = [c for c in string.ascii_uppercase if c != 'G']
 
 def get_info_for_ppid(ppid):
     if ppid is None: return "A", "unknown"
-    if ppid not in ppid_info:
-        idx = len(ppid_info) % len(alphabet)
+    if ppid not in ppid_to_letter:
+        idx = len(ppid_to_letter) % len(alphabet)
         letter = alphabet[idx]
         try:
             p = psutil.Process(ppid)
             folder = os.path.basename(p.cwd())
         except:
             folder = "unknown"
-        ppid_info[ppid] = (letter, folder)
-    return ppid_info[ppid]
+        ppid_to_letter[ppid] = (letter, folder)
+    return ppid_to_letter[ppid]
 
 def process_event(ser, data):
     event_name = data.get("hook_event_name")
@@ -40,10 +35,18 @@ def process_event(ser, data):
     
     letter, folder = get_info_for_ppid(ppid)
     
-    color_code = "W"
+    color_code = ""
     status_text = event_name
-    
-    if event_name in ["BeforeModel", "BeforeTool"]:
+    should_clear_ppid = False
+
+    if event_name == "BeforeAll":
+        color_code = "B"
+        status_text = "Ready"
+    elif event_name == "AfterAll":
+        color_code = "K"
+        status_text = "OFF"
+        should_clear_ppid = True
+    elif event_name in ["BeforeModel", "BeforeTool"]:
         color_code = "Y"
     elif event_name == "AfterModel":
         color_code = "G"
@@ -52,19 +55,20 @@ def process_event(ser, data):
         status_text = "Permission"
 
     if color_code:
-        # NEW ROBUST FORMAT: @Letter:Color:Folder:Status#
         full_msg = f"@{letter}:{color_code}:{folder}:{status_text}#"
         try:
             ser.write((full_msg + "\n").encode('utf-8'))
             ser.flush()
             print(f"Sent: {full_msg}", flush=True)
+            if should_clear_ppid and ppid in ppid_to_letter:
+                del ppid_to_letter[ppid]
         except Exception as e:
             print(f"Error: {e}", flush=True)
             return False
     return True
 
 def main():
-    print("Bridge (Robust Mode) starting...", flush=True)
+    print("Bridge (Lifecycle Mode) starting...", flush=True)
     r = redis.Redis(host=R_HOST, port=R_PORT, decode_responses=True)
     ser = None
     
@@ -76,7 +80,6 @@ def main():
             except:
                 time.sleep(5)
                 continue
-        
         try:
             result = r.brpop(R_QUEUE, timeout=5)
             if result:

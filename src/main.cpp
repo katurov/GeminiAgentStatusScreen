@@ -41,6 +41,17 @@ void drawInterface() {
   }
 }
 
+void removeAgent(char letter) {
+  for (int i = 0; i < MAX_WIDGETS; i++) {
+    if (widgets[i].active && widgets[i].letter == letter) {
+      widgets[i].active = false;
+      widgets[i].letter = ' ';
+      drawInterface();
+      return;
+    }
+  }
+}
+
 void updateAgent(char letter, uint16_t color, String folder, String status) {
   int idx = -1;
   for (int i = 0; i < MAX_WIDGETS; i++) {
@@ -59,7 +70,7 @@ void updateAgent(char letter, uint16_t color, String folder, String status) {
     }
   }
 
-  if (idx == -1) idx = MAX_WIDGETS - 1;
+  if (idx == -1) return; // No free slots
 
   widgets[idx].letter = letter;
   widgets[idx].color = color;
@@ -77,7 +88,6 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
   pinMode(4, OUTPUT);
   digitalWrite(4, HIGH);
-  Serial.println("ESP32 Robust Monitor Started");
 }
 
 void loop() {
@@ -90,7 +100,6 @@ void loop() {
     
     if (start != -1 && end != -1 && end > start) {
       String payload = input.substring(start + 1, end);
-      // Expected: L:C:Folder:Status
       int c1 = payload.indexOf(':');
       int c2 = payload.indexOf(':', c1 + 1);
       int c3 = payload.indexOf(':', c2 + 1);
@@ -101,13 +110,17 @@ void loop() {
         String folder = payload.substring(c2 + 1, c3);
         String status = payload.substring(c3 + 1);
         
-        uint16_t color = TFT_WHITE;
-        if (colorCode == 'Y') color = TFT_YELLOW;
-        else if (colorCode == 'G') color = TFT_GREEN;
-        else if (colorCode == 'R') color = TFT_RED;
-        else if (colorCode == 'B') color = TFT_BLUE;
+        if (colorCode == 'K') {
+           removeAgent(letter);
+        } else {
+          uint16_t color = TFT_WHITE;
+          if (colorCode == 'Y') color = TFT_YELLOW;
+          else if (colorCode == 'G') color = TFT_GREEN;
+          else if (colorCode == 'R') color = TFT_RED;
+          else if (colorCode == 'B') color = TFT_BLUE;
 
-        updateAgent(letter, color, folder, status);
+          updateAgent(letter, color, folder, status);
+        }
       }
     }
   }
