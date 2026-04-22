@@ -39,24 +39,42 @@ atexit.register(remove_pid)
 ppid_to_letter = {} 
 alphabet = [c for c in string.ascii_uppercase if c != 'G']
 
-def get_info_for_ppid(ppid):
-    if ppid is None: return "A", "unknown"
+def get_info_for_ppid(ppid, create_if_missing=True):
+    if ppid is None: 
+        return "A", "unknown"
+    
     if ppid not in ppid_to_letter:
-        idx = len(ppid_to_letter) % len(alphabet)
-        letter = alphabet[idx]
+        if not create_if_missing:
+            return None, None
+            
+        # Находим первую свободную букву, которой нет в текущем словаре
+        used_letters = {val[0] for val in ppid_to_letter.values()}
+        letter = "A"
+        for char in alphabet:
+            if char not in used_letters:
+                letter = char
+                break
+        
         try:
             p = psutil.Process(ppid)
             folder = os.path.basename(p.cwd())
         except:
             folder = "unknown"
         ppid_to_letter[ppid] = (letter, folder)
+        
     return ppid_to_letter[ppid]
 
 def process_event(ser, data):
     event_name = data.get("hook_event_name")
     ppid = data.get("_ppid")
     
-    letter, folder = get_info_for_ppid(ppid)
+    # Для событий завершения не создаем новую запись, если её нет
+    is_exit_event = event_name in ["AfterAll", "SessionEnd"]
+    letter, folder = get_info_for_ppid(ppid, create_if_missing=not is_exit_event)
+    
+    if letter is None:
+        # Событие завершения для уже удаленного или неизвестного процесса
+        return True
     
     color_code = ""
     status_text = event_name
@@ -65,7 +83,7 @@ def process_event(ser, data):
     if event_name in ["BeforeAll", "SessionStart"]:
         color_code = "B"
         status_text = "Ready"
-    elif event_name in ["AfterAll", "SessionEnd"]:
+    elif is_exit_event:
         color_code = "K"
         status_text = "OFF"
         should_clear_ppid = True
