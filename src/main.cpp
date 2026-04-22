@@ -14,6 +14,10 @@ struct AgentWidget {
 
 AgentWidget widgets[MAX_WIDGETS];
 TFT_eSPI tft = TFT_eSPI();
+uint8_t rotation = 1;
+
+#define BTN_1 35
+#define BTN_2 0
 
 uint16_t getColor(char code) {
   switch (code) {
@@ -29,9 +33,23 @@ uint16_t getColor(char code) {
 void drawInterface() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextSize(2);
-  
-  // The screen height is 135, width 240 (Rotation 1)
-  // 4 widgets = 135 / 4 = ~33 pixels height each
+
+  bool anyActive = false;
+  for (int i = 0; i < MAX_WIDGETS; i++) {
+    if (widgets[i].active) {
+      anyActive = true;
+      break;
+    }
+  }
+
+  if (!anyActive) {
+    tft.setTextColor(TFT_GREEN);
+    tft.setCursor(0, 0);
+    tft.println("AgentStatuser Ready");
+    return;
+  }
+
+  // The screen height is 135, width 240 (Rotation 1 or 3)
   int widgetHeight = 33;
 
   for (int i = 0; i < MAX_WIDGETS; i++) {
@@ -113,8 +131,12 @@ void updateWidget(char source, uint16_t color, String location, String event) {
 
 void setup() {
   Serial.begin(115200);
+  
+  pinMode(BTN_1, INPUT_PULLUP);
+  pinMode(BTN_2, INPUT_PULLUP);
+  
   tft.init();
-  tft.setRotation(1);
+  tft.setRotation(rotation);
   tft.fillScreen(TFT_BLACK);
   
   // Backlight for TTGO T-Display
@@ -128,6 +150,25 @@ void setup() {
 }
 
 void loop() {
+  // Check buttons for rotation
+  if (digitalRead(BTN_1) == LOW) {
+    if (rotation != 1) {
+      rotation = 1;
+      tft.setRotation(rotation);
+      drawInterface();
+      delay(200); // Debounce
+    }
+  }
+  
+  if (digitalRead(BTN_2) == LOW) {
+    if (rotation != 3) {
+      rotation = 3;
+      tft.setRotation(rotation);
+      drawInterface();
+      delay(200); // Debounce
+    }
+  }
+
   if (Serial.available()) {
     String input = Serial.readStringUntil('\n');
     input.trim();
