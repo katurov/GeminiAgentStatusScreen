@@ -3,8 +3,8 @@
 ## Архитектура решения
 Система построена на событийно-ориентированной модели (Producer-Consumer) для исключения блокировок основного процесса Gemini:
 1. **Hooks (Producer):** Gemini CLI вызывает `scripts/hook.py` при наступлении событий.
-2. **Broker (Redis):** Docker-контейнер `gemini-redis` (порт 6379) принимает JSON-события через очередь `gemini_events`.
-3. **Bridge (Consumer):** Фоновый процесс `scripts/bridge.py` читает Redis, определяет проектную папку по PPID и пересылает данные в Serial.
+2. **Broker (Redis):** Docker-контейнер `gemini-redis` (порт 6379, хост `192.168.42.51`) принимает JSON-события через очередь `gemini_events`.
+3. **Bridge (Consumer):** Фоновый процесс `scripts/bridge.py` читает Redis, определяет проектную папку по PPID и пересылает данные в Serial. Конфигурация (Redis, Serial) берется из `scripts/.env`.
 4. **Display (ESP32):** Плата LilyGo TTGO T-Display отображает до 4-х динамических виджетов.
 
 ## Управление и ориентация (Buttons)

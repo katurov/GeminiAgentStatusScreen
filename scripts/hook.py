@@ -4,10 +4,14 @@ import os
 import socket
 from datetime import datetime
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Redis config
-R_HOST = '127.0.0.1'
-R_PORT = 6379
-R_QUEUE = 'gemini_events'
+R_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+R_PORT = int(os.getenv('REDIS_PORT', 6379))
+R_QUEUE = os.getenv('REDIS_QUEUE', 'gemini_events')
 
 def redis_lpush_raw(data_str):
     try:

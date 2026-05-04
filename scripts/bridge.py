@@ -7,12 +7,15 @@ import string
 import os
 import psutil
 import atexit
+from dotenv import load_dotenv
 
-R_HOST = '127.0.0.1'
-R_PORT = 6379
-R_QUEUE = 'gemini_events'
-SERIAL_PORT = "/dev/cu.usbserial-01EEA79E"
-BAUD_RATE = 115200
+load_dotenv()
+
+R_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+R_PORT = int(os.getenv('REDIS_PORT', 6379))
+R_QUEUE = os.getenv('REDIS_QUEUE', 'gemini_events')
+SERIAL_PORT = os.getenv('SERIAL_PORT', "/dev/cu.usbserial-01EEA79E")
+BAUD_RATE = int(os.getenv('BAUD_RATE', 115200))
 PID_FILE = "bridge.pid"
 
 def check_pid():
