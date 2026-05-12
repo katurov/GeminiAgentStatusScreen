@@ -9,6 +9,9 @@ import psutil
 import atexit
 from dotenv import load_dotenv
 
+# Import quota functions from our new script
+import monitor_sessions
+
 load_dotenv()
 
 R_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
@@ -17,6 +20,40 @@ R_QUEUE = os.getenv('REDIS_QUEUE', 'gemini_events')
 SERIAL_PORT = os.getenv('SERIAL_PORT', "/dev/cu.usbserial-01EEA79E")
 BAUD_RATE = int(os.getenv('BAUD_RATE', 115200))
 PID_FILE = "bridge.pid"
+
+# Quota state
+last_quota_update = 0
+QUOTA_INTERVAL = 120 # 2 minutes
+
+ppid_to_letter = {} 
+alphabet = [c for c in string.ascii_uppercase if c != 'G']
+
+def send_quota(ser, projects_map, token):
+    try:
+        if not projects_map:
+            return
+            
+        project_id = next((pid for pid in projects_map.values() if pid != "unknown"), None)
+        if not project_id:
+            return
+
+        q_data = monitor_sessions.fetch_quota(project_id, token)
+        if q_data and "buckets" in q_data:
+            qL = 0; qF = 0; qP = 0
+            for b in q_data["buckets"]:
+                m_id = b['modelId'].lower()
+                used = round((1 - b.get('remainingFraction', 1.0)) * 100)
+                if "flash-lite" in m_id: qL = max(qL, used)
+                elif "flash" in m_id: qF = max(qF, used)
+                elif "pro" in m_id: qP = max(qP, used)
+            
+            msg = f"@Q:{qL}:{qF}:{qP}#"
+            ser.write((msg + "\n").encode('utf-8'))
+            ser.flush()
+            # print(f"Sent Quota: {msg}", flush=True)
+    except Exception as e:
+        # print(f"Quota error: {e}", flush=True)
+        pass
 
 def check_pid():
     if os.path.exists(PID_FILE):
@@ -39,10 +76,7 @@ def remove_pid():
 
 atexit.register(remove_pid)
 
-ppid_to_letter = {} 
-alphabet = [c for c in string.ascii_uppercase if c != 'G']
-
-def get_info_for_ppid(ppid, create_if_missing=True):
+def get_info_for_ppid(ppid, cwd=None, create_if_missing=True, projects_map=None):
     if ppid is None: 
         return "A", "unknown"
     
@@ -50,7 +84,6 @@ def get_info_for_ppid(ppid, create_if_missing=True):
         if not create_if_missing:
             return None, None
             
-        # Находим первую свободную букву, которой нет в текущем словаре
         used_letters = {val[0] for val in ppid_to_letter.values()}
         letter = "A"
         for char in alphabet:
@@ -58,25 +91,39 @@ def get_info_for_ppid(ppid, create_if_missing=True):
                 letter = char
                 break
         
-        try:
-            p = psutil.Process(ppid)
-            folder = os.path.basename(p.cwd())
-        except:
-            folder = "unknown"
+        # Resolve folder name
+        folder = "unknown"
+        if cwd:
+            if projects_map and cwd in projects_map:
+                folder = projects_map[cwd]
+            else:
+                folder = os.path.basename(cwd)
+        
+        # Fallback to psutil if cwd not provided or unknown
+        if folder == "unknown":
+            try:
+                p = psutil.Process(ppid)
+                p_cwd = p.cwd()
+                if projects_map and p_cwd in projects_map:
+                    folder = projects_map[p_cwd]
+                else:
+                    folder = os.path.basename(p_cwd)
+            except:
+                pass
+                
         ppid_to_letter[ppid] = (letter, folder)
         
     return ppid_to_letter[ppid]
 
-def process_event(ser, data):
+def process_event(ser, data, projects_map):
     event_name = data.get("hook_event_name")
     ppid = data.get("_ppid")
+    cwd = data.get("cwd")
     
-    # Для событий завершения не создаем новую запись, если её нет
     is_exit_event = event_name in ["AfterAll", "SessionEnd"]
-    letter, folder = get_info_for_ppid(ppid, create_if_missing=not is_exit_event)
+    letter, folder = get_info_for_ppid(ppid, cwd=cwd, create_if_missing=not is_exit_event, projects_map=projects_map)
     
     if letter is None:
-        # Событие завершения для уже удаленного или неизвестного процесса
         return True
     
     color_code = ""
@@ -92,7 +139,7 @@ def process_event(ser, data):
         should_clear_ppid = True
     elif event_name in ["BeforeModel", "BeforeTool"]:
         color_code = "Y"
-    elif event_name == "AfterModel":
+    elif event_name == "AfterModel" or event_name == "AfterAgent":
         color_code = "G"
     elif event_name == "Notification" and data.get("notification_type") == "ToolPermission":
         color_code = "R"
@@ -103,39 +150,48 @@ def process_event(ser, data):
         try:
             ser.write((full_msg + "\n").encode('utf-8'))
             ser.flush()
-            print(f"Sent: {full_msg}", flush=True)
+            # print(f"Sent: {full_msg}", flush=True)
             if should_clear_ppid and ppid in ppid_to_letter:
                 del ppid_to_letter[ppid]
         except Exception as e:
-            print(f"Error: {e}", flush=True)
+            # print(f"Error: {e}", flush=True)
             return False
     return True
 
 def main():
     check_pid()
-    print("Bridge (Session Lifecycle Mode) starting...", flush=True)
+    # print("Bridge (Session Lifecycle Mode) starting...", flush=True)
     r = redis.Redis(host=R_HOST, port=R_PORT, decode_responses=True)
     ser = None
     
+    projects_map, token = monitor_sessions.get_gemini_config()
+    last_quota_update = 0
+
     try:
         while True:
             if ser is None:
                 try:
                     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
                     time.sleep(2)
+                    send_quota(ser, projects_map, token)
+                    last_quota_update = time.time()
                 except:
                     time.sleep(5)
                     continue
             try:
-                result = r.brpop(R_QUEUE, timeout=5)
+                if time.time() - last_quota_update > QUOTA_INTERVAL:
+                    send_quota(ser, projects_map, token)
+                    last_quota_update = time.time()
+
+                result = r.brpop(R_QUEUE, timeout=1)
                 if result:
                     _, item = result
                     data = json.loads(item)
-                    if not process_event(ser, data):
+                    if not process_event(ser, data, projects_map):
                         ser.close()
                         ser = None
             except Exception as e:
-                print(f"Loop error: {e}", flush=True)
+                # print(f"Loop error: {e}", flush=True)
                 time.sleep(1)
     except KeyboardInterrupt:
         print("\nBridge stopped by user.", flush=True)

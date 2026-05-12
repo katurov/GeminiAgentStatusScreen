@@ -16,6 +16,10 @@ AgentWidget widgets[MAX_WIDGETS];
 TFT_eSPI tft = TFT_eSPI();
 uint8_t rotation = 1;
 
+// Global quota values
+int qL = 0, qF = 0, qP = 0;
+bool quotaReceived = false;
+
 #define BTN_1 35
 #define BTN_2 0
 
@@ -30,8 +34,47 @@ uint16_t getColor(char code) {
   }
 }
 
+void drawQuota() {
+  if (!quotaReceived) return;
+
+  int x_start = 215; // Starting X for quota area
+  int y_top = 10;
+  int barHeight = 110;
+  int barWidth = 5;
+  int gap = 3;
+
+  // Clear area
+  tft.fillRect(x_start - 2, 0, 240 - x_start + 2, 135, TFT_BLACK);
+
+  int values[3] = {qL, qF, qP};
+  const char* labels[3] = {"L", "F", "P"};
+  uint16_t colors[3] = {TFT_CYAN, TFT_YELLOW, TFT_MAGENTA};
+
+  for (int i = 0; i < 3; i++) {
+    int x = x_start + i * (barWidth + gap);
+    
+    // Draw Label
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(labels[i], x, 0);
+
+    // Draw Abris (Outline)
+    tft.drawRect(x, y_top, barWidth, barHeight, TFT_WHITE);
+
+    // Draw Fill
+    int fillH = (values[i] * (barHeight - 2)) / 100;
+    if (fillH > 0) {
+      tft.fillRect(x + 1, y_top + barHeight - 1 - fillH, barWidth - 2, fillH, colors[i]);
+    }
+  }
+}
+
 void drawInterface() {
   tft.fillScreen(TFT_BLACK);
+  
+  // Always draw quota if we have it
+  drawQuota();
+
   tft.setTextSize(2);
 
   bool anyActive = false;
@@ -51,6 +94,7 @@ void drawInterface() {
 
   // The screen height is 135, width 240 (Rotation 1 or 3)
   int widgetHeight = 33;
+  int maxWidth = quotaReceived ? 210 : 240;
 
   for (int i = 0; i < MAX_WIDGETS; i++) {
     if (!widgets[i].active) continue;
@@ -60,18 +104,21 @@ void drawInterface() {
     // Row 1: [Source] Location (White)
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
     String line1 = "[" + String(widgets[i].source) + "] " + widgets[i].location;
-    if (line1.length() > 20) line1 = line1.substring(0, 19) + ".";
+    
+    // Truncate based on maxWidth
+    int chars = maxWidth / 12; // Approximation for TextSize 2
+    if (line1.length() > chars) line1 = line1.substring(0, chars-1) + ".";
     tft.drawString(line1, 4, y_start);
     
     // Row 2: Event (Specific Color)
     tft.setTextColor(widgets[i].color, TFT_BLACK);
     String line2 = widgets[i].event;
-    if (line2.length() > 20) line2 = line2.substring(0, 20);
+    if (line2.length() > chars) line2 = line2.substring(0, chars);
     tft.drawString(line2, 4, y_start + 16);
     
     // Separator
     if (i < MAX_WIDGETS - 1) {
-       tft.drawFastHLine(0, y_start + 32, 240, 0x1082); // Dark grey line
+       tft.drawFastHLine(0, y_start + 32, maxWidth, 0x1082); // Dark grey line
     }
   }
 }
@@ -184,6 +231,17 @@ void loop() {
       int c1 = payload.indexOf(':');
       if (c1 == -1) return;
       
+      // Handle Quota command @Q:L:F:P#
+      if (payload.startsWith("Q:")) {
+         int q1, q2, q3;
+         if (sscanf(payload.c_str(), "Q:%d:%d:%d", &q1, &q2, &q3) == 3) {
+            qL = q1; qF = q2; qP = q3;
+            quotaReceived = true;
+            drawInterface();
+         }
+         return;
+      }
+
       int c2 = payload.indexOf(':', c1 + 1);
       if (c2 == -1) return;
       

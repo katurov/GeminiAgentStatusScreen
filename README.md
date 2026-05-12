@@ -22,6 +22,18 @@ The ESP32 screen displays up to **4 most recent active sources**:
   * **Line 1:** `[Source] Folder` (White color).
   * **Line 2:** `Current Status` (Color-coded status).
 
+## Quota Visualization (Right Sidebar)
+The right side of the screen features three vertical bars representing your current Google Cloud quota usage for different model families. This data is fetched via internal Google APIs and updated every **2 minutes**.
+
+* **L (Flash-Lite):** Usage of `gemini-1.5-flash-lite` and similar models. (Cyan bar)
+* **F (Flash):** Usage of `gemini-1.5-flash`, `gemini-2.0-flash`, etc. (Yellow bar)
+* **P (Pro):** Usage of `gemini-1.5-pro` and other Pro models. (Magenta bar)
+
+**How to read the bars:**
+* Each bar is an outline (abris) that fills from **bottom to top**.
+* An empty bar means 0% usage (full quota available).
+* A bar filled to the top means 100% usage (quota exhausted).
+
 ## Quick Start
 1. **Hardware:** Connect your ESP32 via USB. The firmware is located in `src/main.cpp`. Build and upload it using PlatformIO.
 2. **Docker:** Start Redis: `docker run -d --name gemini-redis -p 6379:6379 redis:alpine`.
