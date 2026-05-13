@@ -86,9 +86,20 @@ void drawInterface() {
   }
 
   if (!anyActive) {
-    tft.setTextColor(TFT_GREEN);
-    tft.setCursor(0, 0);
-    tft.println("AgentStatuser Ready");
+    tft.setTextColor(TFT_ORANGE);
+    tft.setTextSize(3); 
+    String waitMsg = "Waiting";
+    
+    // Manual centering for TextSize 3
+    // Each char is roughly 18 pixels wide, 24 pixels high
+    int textW = waitMsg.length() * 18;
+    int textH = 24;
+    
+    int targetX = (240 - textW) / 2;
+    int targetY = (135 - textH) / 2;
+    
+    tft.setCursor(targetX, targetY);
+    tft.print(waitMsg);
     return;
   }
 
@@ -103,11 +114,12 @@ void drawInterface() {
     
     // Row 1: [Source] Location (White)
     tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextSize(2);
     String line1 = "[" + String(widgets[i].source) + "] " + widgets[i].location;
     
-    // Truncate based on maxWidth
+    // Truncate based on maxWidth (No more trailing dot)
     int chars = maxWidth / 12; // Approximation for TextSize 2
-    if (line1.length() > chars) line1 = line1.substring(0, chars-1) + ".";
+    if (line1.length() > chars) line1 = line1.substring(0, chars);
     tft.drawString(line1, 4, y_start);
     
     // Row 2: Event (Specific Color)
