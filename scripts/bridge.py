@@ -30,30 +30,40 @@ alphabet = [c for c in string.ascii_uppercase if c != 'G']
 
 def send_quota(ser, projects_map, token):
     try:
-        if not projects_map:
-            return
-            
-        project_id = next((pid for pid in projects_map.values() if pid != "unknown"), None)
-        if not project_id:
+        if not token:
             return
 
-        q_data = monitor_sessions.fetch_quota(project_id, token)
-        if q_data and "buckets" in q_data:
-            qL = 0; qF = 0; qP = 0
-            for b in q_data["buckets"]:
-                m_id = b['modelId'].lower()
-                used = round((1 - b.get('remainingFraction', 1.0)) * 100)
-                if "flash-lite" in m_id: qL = max(qL, used)
-                elif "flash" in m_id: qF = max(qF, used)
-                elif "pro" in m_id: qP = max(qP, used)
-            
-            msg = f"@Q:{qL}:{qF}:{qP}#"
-            ser.write((msg + "\n").encode('utf-8'))
-            ser.flush()
-            # print(f"Sent Quota: {msg}", flush=True)
+        # Get active projects from sessions
+        sessions = monitor_sessions.get_active_sessions(projects_map)
+        unique_projects = {s['project_id'] for s in sessions if s['project_id'] != "unknown"}
+        
+        # If no active sessions, fall back to the first available project to show some status
+        if not unique_projects:
+            first_proj = next((pid for pid in projects_map.values() if pid != "unknown"), None)
+            if first_proj:
+                unique_projects = {first_proj}
+        
+        if not unique_projects:
+            return
+
+        max_qL = 0; max_qF = 0; max_qP = 0
+        
+        for project_id in unique_projects:
+            q_data = monitor_sessions.fetch_quota(project_id, token)
+            if q_data and "buckets" in q_data:
+                for b in q_data["buckets"]:
+                    m_id = b['modelId'].lower()
+                    used = round((1 - b.get('remainingFraction', 1.0)) * 100)
+                    if "flash-lite" in m_id: max_qL = max(max_qL, used)
+                    elif "flash" in m_id: max_qF = max(max_qF, used)
+                    elif "pro" in m_id: max_qP = max(max_qP, used)
+        
+        msg = f"@Q:{max_qL}:{max_qF}:{max_qP}#"
+        ser.write((msg + "\n").encode('utf-8'))
+        ser.flush()
+        print(f"[{time.strftime('%H:%M:%S')}] Quota sent: {msg} (Projects: {', '.join(unique_projects)})", flush=True)
     except Exception as e:
-        # print(f"Quota error: {e}", flush=True)
-        pass
+        print(f"[{time.strftime('%H:%M:%S')}] Quota error: {e}", flush=True)
 
 def check_pid():
     if os.path.exists(PID_FILE):
