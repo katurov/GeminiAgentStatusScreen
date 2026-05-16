@@ -35,8 +35,12 @@ The right side of the screen features three vertical bars representing your curr
 * A bar filled to the top means 100% usage (quota exhausted).
 
 ## Quick Start
-1. **Hardware:** Connect your ESP32 via USB. The firmware is located in `src/main.cpp`. Build and upload it using PlatformIO.
-2. **Docker:** Start Redis: `docker run -d --name gemini-redis -p 6379:6379 redis:alpine`.
+1. **Hardware:** Connect your ESP32 via USB or Bluetooth. The firmware is located in `ESP32-D0WDQ6/main.cpp`. Build and upload it using PlatformIO.
+2. **Bluetooth Setup (Optional):**
+   - Pair your PC with the device named **AgentStatuser**.
+   - Identify the Bluetooth Serial port (e.g., `/dev/cu.AgentStatuser` on macOS).
+   - Update `SERIAL_PORT` in your `.env` file.
+3. **Docker:** Start Redis: `docker run -d --name gemini-redis -p 6379:6379 redis:alpine`.
 3. **Bridge:** Start the background process: `python3 scripts/bridge.py`.
    * *Note:* PID protection is implemented via `bridge.pid`. If another instance is running, the script will show an error.
 4. **Configuration:** Add the hooks to your Gemini settings (see below).
