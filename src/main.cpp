@@ -1,5 +1,12 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
+#include "BluetoothSerial.h"
+
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+
+BluetoothSerial SerialBT;
 
 #define MAX_WIDGETS 4
 
@@ -19,6 +26,7 @@ uint8_t rotation = 1;
 // Global quota values
 int qL = 0, qF = 0, qP = 0;
 bool quotaReceived = false;
+bool quotaValid = false;
 
 #define BTN_1 35
 #define BTN_2 0
@@ -45,6 +53,20 @@ void drawQuota() {
 
   // Clear area
   tft.fillRect(x_start - 2, 0, 240 - x_start + 2, 135, TFT_BLACK);
+
+  if (!quotaValid) {
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    // Draw NA vertically centered in the bars area
+    tft.drawString("NA", x_start, y_top + barHeight/2 - 4);
+    
+    // Still draw outlines
+    for (int i = 0; i < 3; i++) {
+      int x = x_start + i * (barWidth + gap);
+      tft.drawRect(x, y_top, barWidth, barHeight, 0x3186); // Dim grey
+    }
+    return;
+  }
 
   int values[3] = {qL, qF, qP};
   const char* labels[3] = {"L", "F", "P"};
@@ -75,8 +97,6 @@ void drawInterface() {
   // Always draw quota if we have it
   drawQuota();
 
-  tft.setTextSize(2);
-
   bool anyActive = false;
   for (int i = 0; i < MAX_WIDGETS; i++) {
     if (widgets[i].active) {
@@ -86,20 +106,19 @@ void drawInterface() {
   }
 
   if (!anyActive) {
-    tft.setTextColor(TFT_ORANGE);
+    tft.setTextColor(TFT_ORANGE, TFT_BLACK);
     tft.setTextSize(3); 
     String waitMsg = "Waiting";
     
-    // Manual centering for TextSize 3
-    // Each char is roughly 18 pixels wide, 24 pixels high
+    // Manual centering for TextSize 3 on 240x135 screen
+    // TextSize 3 is approx 18x24 pixels per char
     int textW = waitMsg.length() * 18;
     int textH = 24;
     
     int targetX = (240 - textW) / 2;
     int targetY = (135 - textH) / 2;
     
-    tft.setCursor(targetX, targetY);
-    tft.print(waitMsg);
+    tft.drawString(waitMsg, targetX, targetY);
     return;
   }
 
@@ -188,24 +207,81 @@ void updateWidget(char source, uint16_t color, String location, String event) {
   drawInterface();
 }
 
+void processInput(String input) {
+  input.trim();
+  if (input.length() == 0) return;
+  
+  Serial.println("DEBUG: " + input); 
+  
+  int start = input.indexOf('@');
+  int end = input.indexOf('#');
+  
+  if (start != -1 && end != -1 && end > start) {
+    String payload = input.substring(start + 1, end);
+    // Expected format: Source:ColorCode:Location:Event
+    // Example: B:Y:GenWineDesc:BeforeTool
+    
+    int c1 = payload.indexOf(':');
+    if (c1 == -1) return;
+    
+    // Handle Quota command @Q:L:F:P# or @Q:NA#
+    if (payload.startsWith("Q:")) {
+       if (payload == "Q:NA") {
+          quotaValid = false;
+          quotaReceived = true;
+          drawInterface();
+          return;
+       }
+
+       int q1, q2, q3;
+       if (sscanf(payload.c_str(), "Q:%d:%d:%d", &q1, &q2, &q3) == 3) {
+          qL = q1; qF = q2; qP = q3;
+          quotaValid = true;
+          quotaReceived = true;
+          drawInterface();
+       }
+       return;
+    }
+
+    int c2 = payload.indexOf(':', c1 + 1);
+    if (c2 == -1) return;
+    
+    int c3 = payload.indexOf(':', c2 + 1);
+    if (c3 == -1) return;
+    
+    char source = payload.substring(0, c1)[0];
+    char colorCode = payload.substring(c1 + 1, c2)[0];
+    String location = payload.substring(c2 + 1, c3);
+    String event = payload.substring(c3 + 1);
+    
+    if (colorCode == 'K') {
+      removeWidget(source);
+    } else {
+      updateWidget(source, getColor(colorCode), location, event);
+    }
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+  SerialBT.begin("AgentStatuser"); // Bluetooth device name
   
   pinMode(BTN_1, INPUT_PULLUP);
   pinMode(BTN_2, INPUT_PULLUP);
   
   tft.init();
   tft.setRotation(rotation);
-  tft.fillScreen(TFT_BLACK);
   
   // Backlight for TTGO T-Display
   pinMode(4, OUTPUT);
   digitalWrite(4, HIGH);
   
-  tft.setTextSize(2);
-  tft.setTextColor(TFT_GREEN);
-  tft.setCursor(0, 0);
-  tft.println("AgentStatuser Ready");
+  // HARDWARE TEST: Draw a red box
+  tft.fillScreen(TFT_RED);
+  delay(1000);
+  tft.fillScreen(TFT_BLACK);
+  
+  drawInterface();
 }
 
 void loop() {
@@ -229,47 +305,10 @@ void loop() {
   }
 
   if (Serial.available()) {
-    String input = Serial.readStringUntil('\n');
-    input.trim();
-    
-    int start = input.indexOf('@');
-    int end = input.indexOf('#');
-    
-    if (start != -1 && end != -1 && end > start) {
-      String payload = input.substring(start + 1, end);
-      // Expected format: Source:ColorCode:Location:Event
-      // Example: B:Y:GenWineDesc:BeforeTool
-      
-      int c1 = payload.indexOf(':');
-      if (c1 == -1) return;
-      
-      // Handle Quota command @Q:L:F:P#
-      if (payload.startsWith("Q:")) {
-         int q1, q2, q3;
-         if (sscanf(payload.c_str(), "Q:%d:%d:%d", &q1, &q2, &q3) == 3) {
-            qL = q1; qF = q2; qP = q3;
-            quotaReceived = true;
-            drawInterface();
-         }
-         return;
-      }
-
-      int c2 = payload.indexOf(':', c1 + 1);
-      if (c2 == -1) return;
-      
-      int c3 = payload.indexOf(':', c2 + 1);
-      if (c3 == -1) return;
-      
-      char source = payload.substring(0, c1)[0];
-      char colorCode = payload.substring(c1 + 1, c2)[0];
-      String location = payload.substring(c2 + 1, c3);
-      String event = payload.substring(c3 + 1);
-      
-      if (colorCode == 'K') {
-        removeWidget(source);
-      } else {
-        updateWidget(source, getColor(colorCode), location, event);
-      }
-    }
+    processInput(Serial.readStringUntil('\n'));
+  }
+  
+  if (SerialBT.available()) {
+    processInput(SerialBT.readStringUntil('\n'));
   }
 }

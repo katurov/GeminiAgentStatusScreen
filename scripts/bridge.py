@@ -24,20 +24,39 @@ PID_FILE = "bridge.pid"
 # Quota state
 last_quota_update = 0
 QUOTA_INTERVAL = 120 # 2 minutes
+MIN_QUOTA_GAP = 30   # Minimum seconds between API calls
+token_is_valid = True
 
 ppid_to_letter = {} 
 alphabet = [c for c in string.ascii_uppercase if c != 'G']
 
-def send_quota(ser, projects_map, token):
+def send_quota(ser, projects_map, token, force=False):
+    global last_quota_update, token_is_valid
+    
+    now = time.time()
+    # Throttling
+    if not force:
+        if now - last_quota_update < QUOTA_INTERVAL:
+            return
+        if not token_is_valid:
+            return
+    else:
+        if now - last_quota_update < MIN_QUOTA_GAP:
+            return
+
     try:
         if not token:
+            if token_is_valid:
+                ser.write(b"@Q:NA#\n")
+                ser.flush()
+                token_is_valid = False
+                print(f"[{time.strftime('%H:%M:%S')}] Token missing, sending NA", flush=True)
             return
 
         # Get active projects from sessions
         sessions = monitor_sessions.get_active_sessions(projects_map)
         unique_projects = {s['project_id'] for s in sessions if s['project_id'] != "unknown"}
         
-        # If no active sessions, fall back to the first available project to show some status
         if not unique_projects:
             first_proj = next((pid for pid in projects_map.values() if pid != "unknown"), None)
             if first_proj:
@@ -47,21 +66,36 @@ def send_quota(ser, projects_map, token):
             return
 
         max_qL = 0; max_qF = 0; max_qP = 0
+        any_success = False
         
         for project_id in unique_projects:
             q_data = monitor_sessions.fetch_quota(project_id, token)
             if q_data and "buckets" in q_data:
+                any_success = True
                 for b in q_data["buckets"]:
                     m_id = b['modelId'].lower()
                     used = round((1 - b.get('remainingFraction', 1.0)) * 100)
                     if "flash-lite" in m_id: max_qL = max(max_qL, used)
                     elif "flash" in m_id: max_qF = max(max_qF, used)
                     elif "pro" in m_id: max_qP = max(max_qP, used)
-        
-        msg = f"@Q:{max_qL}:{max_qF}:{max_qP}#"
-        ser.write((msg + "\n").encode('utf-8'))
-        ser.flush()
-        print(f"[{time.strftime('%H:%M:%S')}] Quota sent: {msg} (Projects: {', '.join(unique_projects)})", flush=True)
+            elif q_data and "error" in q_data:
+                pass
+
+        if any_success:
+            msg = f"@Q:{max_qL}:{max_qF}:{max_qP}#"
+            ser.write((msg + "\n").encode('utf-8'))
+            ser.flush()
+            token_is_valid = True
+            last_quota_update = now
+            print(f"[{time.strftime('%H:%M:%S')}] Quota sent: {msg}", flush=True)
+        else:
+            if token_is_valid:
+                ser.write(b"@Q:NA#\n")
+                ser.flush()
+                token_is_valid = False
+                print(f"[{time.strftime('%H:%M:%S')}] Quota empty, sending NA", flush=True)
+            last_quota_update = now
+            
     except Exception as e:
         print(f"[{time.strftime('%H:%M:%S')}] Quota error: {e}", flush=True)
 
@@ -101,7 +135,6 @@ def get_info_for_ppid(ppid, cwd=None, create_if_missing=True, projects_map=None)
                 letter = char
                 break
         
-        # Resolve folder name
         folder = "unknown"
         if cwd:
             if projects_map and cwd in projects_map:
@@ -109,7 +142,6 @@ def get_info_for_ppid(ppid, cwd=None, create_if_missing=True, projects_map=None)
             else:
                 folder = os.path.basename(cwd)
         
-        # Fallback to psutil if cwd not provided or unknown
         if folder == "unknown":
             try:
                 p = psutil.Process(ppid)
@@ -160,48 +192,45 @@ def process_event(ser, data, projects_map):
         try:
             ser.write((full_msg + "\n").encode('utf-8'))
             ser.flush()
-            # print(f"Sent: {full_msg}", flush=True)
             if should_clear_ppid and ppid in ppid_to_letter:
                 del ppid_to_letter[ppid]
         except Exception as e:
-            # print(f"Error: {e}", flush=True)
             return False
     return True
 
 def main():
     check_pid()
-    # print("Bridge (Session Lifecycle Mode) starting...", flush=True)
+    global token_is_valid
     r = redis.Redis(host=R_HOST, port=R_PORT, decode_responses=True)
     ser = None
-    
-    projects_map, token = monitor_sessions.get_gemini_config()
-    last_quota_update = 0
 
     try:
         while True:
+            projects_map, token = monitor_sessions.get_gemini_config()
+            
             if ser is None:
                 try:
                     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
                     time.sleep(2)
-                    send_quota(ser, projects_map, token)
-                    last_quota_update = time.time()
+                    send_quota(ser, projects_map, token, force=True)
                 except:
                     time.sleep(5)
                     continue
             try:
-                if time.time() - last_quota_update > QUOTA_INTERVAL:
-                    send_quota(ser, projects_map, token)
-                    last_quota_update = time.time()
+                send_quota(ser, projects_map, token)
 
                 result = r.brpop(R_QUEUE, timeout=1)
                 if result:
                     _, item = result
                     data = json.loads(item)
+                    
+                    if not token_is_valid:
+                        send_quota(ser, projects_map, token, force=True)
+
                     if not process_event(ser, data, projects_map):
                         ser.close()
                         ser = None
             except Exception as e:
-                # print(f"Loop error: {e}", flush=True)
                 time.sleep(1)
     except KeyboardInterrupt:
         print("\nBridge stopped by user.", flush=True)
