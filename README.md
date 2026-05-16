@@ -11,7 +11,56 @@ When running complex tasks, Gemini CLI may spawn sub-agents or perform long-runn
 * Identify which folder (project) the action is currently taking place in.
 * Instantly recognize tool execution requests (red status for permission).
 
-## How it works
+## 🚀 Performance: Rust vs Python Hooks
+
+Since Gemini CLI triggers hooks synchronously for every major event, the speed of the hook script directly impacts the responsiveness of the CLI. We compared the original Python hook with a compiled Rust version.
+
+### Benchmark Results (200 iterations)
+| Metric | Python Hook | Rust Hook |
+| :--- | :--- | :--- |
+| **Total Time** | 8.15 seconds | 0.57 seconds |
+| **Per Call** | **~40.76 ms** | **~2.85 ms** |
+| **Speedup** | 1x | **14.28x faster** |
+
+**Why the difference?** Python spends ~40ms just to initialize the interpreter and import modules for every single call. Rust is a native binary that executes instantly, making the "Agent Status" updates completely transparent and lag-free.
+
+---
+
+## 🛠️ Rust Hook Installation & Compilation
+
+If you want the best performance, follow these steps to compile and use the Rust version:
+
+### 1. Install Rust
+If you don't have Rust installed, run the official installer:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+Follow the prompts and restart your terminal.
+
+### 2. Compile the Hook
+Navigate to the project and build the release binary:
+```bash
+cd scripts/rust_hook
+cargo build --release
+```
+The compiled binary will be located at `scripts/rust_hook/target/release/rust_hook`.
+
+### 3. Deploy
+Copy the binary to a permanent location:
+```bash
+mkdir -p ~/Utils/GeminiHooks/
+cp target/release/rust_hook ~/Utils/GeminiHooks/
+```
+
+### 4. Update Gemini Configuration
+Update your `~/.gemini/settings.json` to use the binary directly instead of `python3 hook.py`:
+```json
+"command": "/Users/YOUR_USER/Utils/GeminiHooks/rust_hook"
+```
+
+---
+
+## 🏗️ How it works
 The system uses **Redis** as a broker. This ensures that Gemini is not blocked when sending data to a potentially slow Serial port. A dedicated "bridge" (`bridge.py`) monitors process activity and updates the widgets on the screen.
 
 ## Display Logic (LRU Stack)
